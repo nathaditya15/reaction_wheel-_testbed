@@ -3,6 +3,8 @@ import time
 import statistics
 from gpiozero import Servo, AngularServo
 from gpiozero.pins.pigpio import PiGPIOFactory
+import sys
+import select
 
 # Set up GPIO
 GPIO.setmode(GPIO.BCM)
@@ -60,6 +62,9 @@ def median_filter(rpm):
     rpm_median_buffer = rpm_median_buffer[1:] + [rpm]
     return statistics.median(rpm_median_buffer)
 
+def input_available():
+    return select.select([sys.stdin], [], [], 0)[0]
+
 # Setup
 GPIO.setup(HALL_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
 GPIO.add_event_detect(HALL_PIN, GPIO.RISING, callback=pulse_counter)
@@ -93,8 +98,8 @@ try:
             if rpm > 0 and pulse_width > 1100:
                 print(f"{rpm:.2f}, {rpm_filtered:.2f}, {rpm_median_filtered:.2f}, {pulse_width}, {INPUT_VOLTAGE}")
 
-        if input_available():  # You need to implement this function
-            input_char = input()
+        if input_available():
+            input_char = sys.stdin.readline().strip()
             if input_char.lower() == 'a':
                 dir_pulse_width = 1000
                 print("Direction pulse width set to 1000")
