@@ -1,0 +1,134 @@
+import RPi.GPIO as GPIO
+import time
+import statistics
+from gpiozero import Servo, AngularServo
+from gpiozero.pins.pigpio import PiGPIOFactory
+
+# Set up GPIO
+GPIO.setmode(GPIO.BCM)
+GPIO.setwarnings(False)
+
+# Use pigpio for better PWM control
+factory = PiGPIOFactory()
+
+# Constants
+MIN_ESC_PULSE_WIDTH = 1000
+MAX_ESC_PULSE_WIDTH = 2000
+LOW_DUTY_CYCLE = 0
+HIGH_DUTY_CYCLE = 14
+HALL_PIN = 2
+INPUT_VOLTAGE = 16
+
+# Servo setup
+dir_servo = AngularServo(7, min_pulse_width=0.5/1000, max_pulse_width=2.5/1000, pin_factory=factory)
+esc = Servo(4, min_pulse_width=1/1000, max_pulse_width=2/1000, pin_factory=factory)
+
+# Variables
+last_pulse_time = 0
+pulse_interval = float('inf')
+new_pulse = False
+prev_log_time = 0
+log_interval = 0.03
+rpm = 0
+rpm_filtered = 0
+rpm_median_filtered = 0
+
+pulse_width = 1000
+dir_pulse_width = 1400
+
+# Filter variables
+filter_size = 5
+rpm_filter = [0] * filter_size
+median_filter_size = 5
+rpm_median_buffer = [0] * median_filter_size
+
+def pulse_counter(channel):
+    global last_pulse_time, pulse_interval, new_pulse
+    current_time = time.time() * 1000000  # Convert to microseconds
+    if last_pulse_time != 0:
+        pulse_interval = current_time - last_pulse_time
+        new_pulse = True
+    last_pulse_time = current_time
+
+def moving_average_filter(rpm):
+    global rpm_filter
+    rpm_filter = rpm_filter[1:] + [rpm]
+    return sum(rpm_filter) / len(rpm_filter)
+
+def median_filter(rpm):
+    global rpm_median_buffer
+    rpm_median_buffer = rpm_median_buffer[1:] + [rpm]
+    return statistics.median(rpm_median_buffer)
+
+# Setup
+GPIO.setup(HALL_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+GPIO.add_event_detect(HALL_PIN, GPIO.RISING, callback=pulse_counter)
+
+esc.min()
+dir_servo.angle = 0
+time.sleep(1)
+esc.max()
+
+print("Starting...")
+
+try:
+    while True:
+        if new_pulse and 0 < pulse_interval < 1000000:
+            pulse_frequency = 1000000.0 / pulse_interval
+            rpm = (pulse_frequency * 60.0) / 7  # Calculate RPM based on pulse frequency
+
+            # Apply Moving Average and Median Filters
+            rpm_filtered = moving_average_filter(rpm)
+            rpm_median_filtered = median_filter(rpm)
+
+            new_pulse = False
+        elif time.time() * 1000 - last_pulse_time > 500:  # If no pulse for 500ms, assume zero RPM
+            rpm = 0
+            rpm_filtered = moving_average_filter(0)
+            rpm_median_filtered = median_filter(0)
+
+        current_time = time.time()
+        if current_time - prev_log_time >= log_interval:
+            prev_log_time = current_time
+            if rpm > 0 and pulse_width > 1100:
+                print(f"{rpm:.2f}, {rpm_filtered:.2f}, {rpm_median_filtered:.2f}, {pulse_width}, {INPUT_VOLTAGE}")
+
+        if input_available():  # You need to implement this function
+            input_char = input()
+            if input_char.lower() == 'a':
+                dir_pulse_width = 1000
+                print("Direction pulse width set to 1000")
+            elif input_char.lower() == 'c':
+                dir_pulse_width = 2000
+                print("Direction pulse width set to 2000")
+            elif input_char.lower() == 'm':
+                motor_speed = int(input("Enter motor speed (0-100): "))
+                if 0 <= motor_speed <= 100:
+                    new_pulse_width = (motor_speed / 100) * (MAX_ESC_PULSE_WIDTH - MIN_ESC_PULSE_WIDTH) + MIN_ESC_PULSE_WIDTH
+                    esc.value = (new_pulse_width - 1500) / 500  # Convert to -1 to 1 range
+                    print(f"Motor speed set to: {motor_speed}")
+                else:
+                    print("Invalid motor speed. Please enter a value between 0 and 100.")
+            else:
+                try:
+                    new_pulse = int(input_char)
+                    new_pulse_width = 1000 + new_pulse * 10
+                    if 1000 <= new_pulse_width <= 2000:
+                        pulse_width = new_pulse_width
+                        esc.value = (pulse_width - 1500) / 500  # Convert to -1 to 1 range
+                        print(f"New pulse width set to: {pulse_width}")
+                    else:
+                        print("Invalid pulse width value. Must be between 1000 and 2000.")
+                except ValueError:
+                    pass
+
+        dir_servo.angle = (dir_pulse_width - 1500) / 5  # Convert to -90 to 90 degree range
+
+        time.sleep(0.01)
+
+except KeyboardInterrupt:
+    print("Exiting...")
+finally:
+    GPIO.cleanup()
+    esc.close()
+    dir_servo.close()
