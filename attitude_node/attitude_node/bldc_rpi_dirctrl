@@ -1,0 +1,67 @@
+import pigpio
+import serial
+import time
+
+# Constants for ESC control
+ESC_GPIO = 18  # GPIO pin connected to ESC
+DIR_GPIO = 17  # GPIO pin connected to direction control
+MIN_PULSE_WIDTH = 1000  # Minimum pulse width in microseconds
+MAX_PULSE_WIDTH = 2000  # Maximum pulse width in microseconds
+
+# Initialize pigpio
+pi = pigpio.pi()
+if not pi.connected:
+    exit()
+
+# Initialize serial communication (adjust '/dev/ttyUSB0' as needed)
+ser = serial.Serial('/dev/ttyUSB0', 115200, timeout=1)
+
+# Initialize pulse widths
+pulse_width = MIN_PULSE_WIDTH
+dir_pulse_width = 1400  # Initial direction pulse width value
+
+# Function to set ESC and direction pulse width
+def set_motor(pulse_width, dir_pulse_width):
+    pi.set_servo_pulsewidth(ESC_GPIO, pulse_width)
+    pi.set_servo_pulsewidth(DIR_GPIO, dir_pulse_width)
+
+# Arm the ESC
+set_motor(MIN_PULSE_WIDTH, dir_pulse_width)
+time.sleep(2)  # Wait for ESC initialization
+print("Starting...")
+
+try:
+    while True:
+        if ser.in_waiting > 0:
+            input_char = ser.read().decode('utf-8')
+            if input_char in ['A', 'a']:
+                dir_pulse_width = 1400
+                print("Direction pulse width set to 1400")
+            elif input_char in ['C', 'c']:
+                dir_pulse_width = 1600
+                print("Direction pulse width set to 1600")
+            elif input_char in ['\n', '\r']:
+                continue  # Ignore newline and carriage return characters
+            else:
+                try:
+                    new_pulse = int(input_char)
+                    new_pulse_width = MIN_PULSE_WIDTH + new_pulse * 10
+                    if MIN_PULSE_WIDTH <= new_pulse_width <= MAX_PULSE_WIDTH:
+                        pulse_width = new_pulse_width
+                        print(f"New pulse width set to: {pulse_width}")
+                    else:
+                        print("Invalid pulse width value. Must be between 1000 and 2000.")
+                except ValueError:
+                    print("Invalid input. Please enter a number or A/C for direction.")
+
+        # Update motor settings
+        set_motor(pulse_width, dir_pulse_width)
+        time.sleep(0.01)  # Wait for a short duration
+
+except KeyboardInterrupt:
+    print("Stopping...")
+finally:
+    pi.set_servo_pulsewidth(ESC_GPIO, 0)  # Stop sending signals to ESC
+    pi.set_servo_pulsewidth(DIR_GPIO, 0)   # Stop sending signals to direction control
+    pi.stop()                               # Disconnect from pigpio
+    ser.close()                             # Close serial connection
