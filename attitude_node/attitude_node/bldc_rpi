@@ -1,0 +1,48 @@
+import pigpio
+import time
+
+# Constants for ESC control
+ESC_GPIO = 18  # GPIO pin connected to ESC
+MIN_PULSE_WIDTH = 1000  # Minimum pulse width in microseconds
+MAX_PULSE_WIDTH = 2000  # Maximum pulse width in microseconds
+NEUTRAL_PULSE_WIDTH = 1500  # Neutral position pulse width
+
+# Initialize pigpio
+pi = pigpio.pi()
+
+if not pi.connected:
+    exit()
+
+# Function to arm the ESC
+def arm_esc():
+    print("Arming ESC...")
+    pi.set_servo_pulsewidth(ESC_GPIO, NEUTRAL_PULSE_WIDTH)  # Send neutral signal for a few seconds
+    time.sleep(2)  # Wait for ESC to initialize
+
+# Function to set speed
+def set_speed(speed):
+    if speed < MIN_PULSE_WIDTH or speed > MAX_PULSE_WIDTH:
+        print("Speed must be between {} and {} microseconds".format(MIN_PULSE_WIDTH, MAX_PULSE_WIDTH))
+        return
+    pi.set_servo_pulsewidth(ESC_GPIO, speed)
+
+# Main control loop
+try:
+    arm_esc()  # Arm the ESC
+
+    while True:
+        # Example: Set speed from MIN to MAX in steps of 100 microseconds
+        for speed in range(MIN_PULSE_WIDTH, MAX_PULSE_WIDTH + 1, 100):
+            set_speed(speed)
+            time.sleep(0.5)  # Wait for half a second
+        
+        # Reverse speed from MAX to MIN in steps of 100 microseconds
+        for speed in range(MAX_PULSE_WIDTH, MIN_PULSE_WIDTH - 1, -100):
+            set_speed(speed)
+            time.sleep(0.5)  # Wait for half a second
+
+except KeyboardInterrupt:
+    print("Stopping...")
+finally:
+    pi.set_servo_pulsewidth(ESC_GPIO, 0)  # Stop sending signals to ESC
+    pi.stop()  # Disconnect from pigpio
